@@ -66,4 +66,23 @@ public class GlobalExceptionHandler {
 
         return problem;
     }
+    @ExceptionHandler(ResourceNotFoundException.class)
+    public ProblemDetail handleNotFound(
+            ResourceNotFoundException exception
+    ) {
+        return ProblemDetail.forStatusAndDetail(
+                HttpStatus.NOT_FOUND,
+                exception.getMessage()
+        );
+    }
+
+    @ExceptionHandler(InactiveUserException.class)
+    public ProblemDetail handleInactiveUser(
+            InactiveUserException exception
+    ) {
+        return ProblemDetail.forStatusAndDetail(
+                HttpStatus.FORBIDDEN,
+                exception.getMessage()
+        );
+    }
 }
