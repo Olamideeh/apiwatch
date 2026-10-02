@@ -92,6 +92,12 @@ public class MonitoredEndpoint {
     @Column(name = "updated_at", nullable = false)
     private Instant updatedAt;
 
+    @Column(name = "check_token")
+    private UUID checkToken;
+
+    @Column(name = "check_lease_until")
+    private Instant checkLeaseUntil;
+
     @Version
     private Long version;
 
