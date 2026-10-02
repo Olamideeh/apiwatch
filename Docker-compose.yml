@@ -1,0 +1,31 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: apiwatch-postgres
+    environment:
+      POSTGRES_DB: apiwatch_db
+      POSTGRES_USER: apiwatch_user
+      POSTGRES_PASSWORD: apiwatch_password
+    ports:
+      - "5440:5432"
+    volumes:
+      - apiwatch_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - pg_isready -U apiwatch_user -d apiwatch_db
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  adminer:
+    image: adminer:latest
+    container_name: apiwatch-adminer
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "8088:8080"
+
+volumes:
+  apiwatch_postgres_data:
