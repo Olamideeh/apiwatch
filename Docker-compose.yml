@@ -27,5 +27,12 @@ services:
     ports:
       - "8088:8080"
 
+  mailpit:
+    image: axllent/mailpit:latest
+    container_name: apiwatch-mailpit
+    ports:
+      - "127.0.0.1:1026:1025"
+      - "127.0.0.1:8026:8025"
+
 volumes:
   apiwatch_postgres_data:

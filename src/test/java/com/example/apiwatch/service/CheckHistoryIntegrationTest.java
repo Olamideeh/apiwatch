@@ -31,7 +31,8 @@ import static org.junit.jupiter.api.Assertions.*;
         "spring.jpa.hibernate.ddl-auto=validate",
         "spring.flyway.enabled=true",
         "spring.flyway.baseline-on-migrate=false",
-        "apiwatch.monitoring.enabled=false"
+        "apiwatch.monitoring.enabled=false",
+        "apiwatch.alerts.enabled=false"
 })
 @Transactional(isolation = Isolation.REPEATABLE_READ)
 class CheckHistoryIntegrationTest {

@@ -36,7 +36,8 @@ import static org.mockito.Mockito.doThrow;
         "spring.jpa.hibernate.ddl-auto=validate",
         "spring.flyway.enabled=true",
         "spring.flyway.baseline-on-migrate=false",
-        "apiwatch.monitoring.enabled=false"
+        "apiwatch.monitoring.enabled=false",
+        "apiwatch.alerts.enabled=false"
 })
 class CheckLifecycleIntegrationTest {
 

@@ -11,12 +11,24 @@ public class MonitoringSchedulerConfig {
 
     @Bean
     public ThreadPoolTaskExecutor monitoringExecutor() {
+        return createExecutor(4, "apiwatch-check-");
+    }
+
+    @Bean
+    public ThreadPoolTaskExecutor alertExecutor() {
+        return createExecutor(2, "apiwatch-alert-");
+    }
+
+    private ThreadPoolTaskExecutor createExecutor(
+            int workers,
+            String threadPrefix
+    ) {
         ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
 
-        executor.setCorePoolSize(4);
-        executor.setMaxPoolSize(4);
+        executor.setCorePoolSize(workers);
+        executor.setMaxPoolSize(workers);
         executor.setQueueCapacity(0);
-        executor.setThreadNamePrefix("apiwatch-check-");
+        executor.setThreadNamePrefix(threadPrefix);
 
         return executor;
     }

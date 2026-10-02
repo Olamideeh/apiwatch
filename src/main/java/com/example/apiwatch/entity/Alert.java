@@ -73,6 +73,15 @@ public class Alert {
     @Column(name = "sent_at")
     private Instant sentAt;
 
+    @Column(name = "delivery_token")
+    private UUID deliveryToken;
+
+    @Column(name = "delivery_lease_until")
+    private Instant deliveryLeaseUntil;
+
+    @Column(name = "next_attempt_at", nullable = false)
+    private Instant nextAttemptAt;
+
     @Version
     private Long version;
 
@@ -80,6 +89,9 @@ public class Alert {
     public void beforeInsert() {
         if (createdAt == null) {
             createdAt = Instant.now();
+            if (nextAttemptAt == null) {
+                nextAttemptAt = Instant.now();
+            }
         }
 
         if (deliveryStatus == null) {
