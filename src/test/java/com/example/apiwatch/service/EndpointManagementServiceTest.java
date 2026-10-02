@@ -17,7 +17,11 @@ import org.junit.jupiter.params.provider.CsvSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.data.domain.*;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 
 import java.time.Instant;
 import java.util.List;
@@ -88,6 +92,8 @@ class EndpointManagementServiceTest {
                 .findByIdAndOwner_Id(endpointId, ownerId);
 
         verify(endpointRepository, never()).findById(any(UUID.class));
+        verify(endpointRepository, never())
+                .findByIdAndOwnerIdForUpdate(any(), any());
     }
 
     @Test
@@ -173,13 +179,19 @@ class EndpointManagementServiceTest {
                 () -> service.listEndpoints(ownerId, page, size)
         );
 
-        verifyNoInteractions(endpointRepository);
+        verifyNoInteractions(userRepository, endpointRepository);
     }
 
     @Test
-    void pausingPreservesStatusAndSchedule() {
+    void pausingPreservesStatusAndScheduleAndInvalidatesActiveCheck() {
+        UUID previousToken = UUID.randomUUID();
+        endpoint.setCheckToken(previousToken);
+        endpoint.setCheckLeaseUntil(
+                Instant.parse("2099-01-01T00:02:00Z")
+        );
+
         stubOwner();
-        stubEndpoint();
+        stubLockedEndpoint();
         stubSave();
 
         Instant originalSchedule = endpoint.getNextCheckAt();
@@ -201,15 +213,28 @@ class EndpointManagementServiceTest {
                         EndpointStatus.OFFLINE, response.currentStatus()
                 ),
                 () -> assertEquals(3, response.consecutiveFailures()),
-                () -> assertTrue(endpoint.isOutageOpen())
+                () -> assertTrue(endpoint.isOutageOpen()),
+                () -> assertNull(endpoint.getCheckToken()),
+                () -> assertNull(endpoint.getCheckLeaseUntil())
         );
+
+        verify(endpointRepository)
+                .findByIdAndOwnerIdForUpdate(endpointId, ownerId);
+
+        verify(endpointRepository, never())
+                .findByIdAndOwner_Id(any(), any());
     }
 
     @Test
-    void resumingMakesEndpointDueImmediatelyAndPreservesEvidence() {
+    void resumingMakesEndpointDueImmediatelyAndClearsPreviousClaim() {
         endpoint.setPaused(true);
+        endpoint.setCheckToken(UUID.randomUUID());
+        endpoint.setCheckLeaseUntil(
+                Instant.parse("2099-01-01T00:02:00Z")
+        );
+
         stubOwner();
-        stubEndpoint();
+        stubLockedEndpoint();
         stubSave();
 
         Instant before = Instant.now();
@@ -228,15 +253,56 @@ class EndpointManagementServiceTest {
                         EndpointStatus.OFFLINE, response.currentStatus()
                 ),
                 () -> assertEquals(3, response.consecutiveFailures()),
+                () -> assertTrue(endpoint.isOutageOpen()),
+                () -> assertEquals(
+                        Instant.parse("2026-10-02T03:00:00Z"),
+                        response.lastCheckedAt()
+                ),
+                () -> assertNull(endpoint.getCheckToken()),
+                () -> assertNull(endpoint.getCheckLeaseUntil())
+        );
+    }
+
+    @Test
+    void pauseThenResumeDoesNotRestorePreviousCheckToken() {
+        UUID previousToken = UUID.randomUUID();
+
+        endpoint.setCheckToken(previousToken);
+        endpoint.setCheckLeaseUntil(
+                Instant.parse("2099-01-01T00:02:00Z")
+        );
+
+        stubOwner();
+        stubLockedEndpoint();
+        stubSave();
+
+        service.updateMonitoringState(ownerId, endpointId, true);
+        service.updateMonitoringState(ownerId, endpointId, false);
+
+        assertAll(
+                () -> assertFalse(endpoint.isPaused()),
+                () -> assertNull(endpoint.getCheckToken()),
+                () -> assertNull(endpoint.getCheckLeaseUntil()),
+                () -> assertEquals(
+                        EndpointStatus.OFFLINE,
+                        endpoint.getCurrentStatus()
+                ),
+                () -> assertEquals(3, endpoint.getConsecutiveFailures()),
                 () -> assertTrue(endpoint.isOutageOpen())
         );
+
+        verify(endpointRepository, times(2))
+                .findByIdAndOwnerIdForUpdate(endpointId, ownerId);
+
+        verify(endpointRepository, times(2)).save(endpoint);
     }
 
     @Test
     void repeatingPausedStateDoesNotSaveOrChangeSchedule() {
         endpoint.setPaused(true);
+
         stubOwner();
-        stubEndpoint();
+        stubLockedEndpoint();
 
         Instant originalSchedule = endpoint.getNextCheckAt();
 
@@ -252,9 +318,15 @@ class EndpointManagementServiceTest {
     }
 
     @Test
-    void repeatingRunningStateDoesNotReschedule() {
+    void repeatingRunningStatePreservesActiveCheckAndSchedule() {
+        UUID token = UUID.randomUUID();
+        Instant lease = Instant.parse("2099-01-01T00:02:00Z");
+
+        endpoint.setCheckToken(token);
+        endpoint.setCheckLeaseUntil(lease);
+
         stubOwner();
-        stubEndpoint();
+        stubLockedEndpoint();
 
         Instant originalSchedule = endpoint.getNextCheckAt();
 
@@ -262,8 +334,14 @@ class EndpointManagementServiceTest {
                 ownerId, endpointId, false
         );
 
-        assertFalse(response.paused());
-        assertEquals(originalSchedule, response.nextCheckAt());
+        assertAll(
+                () -> assertFalse(response.paused()),
+                () -> assertEquals(
+                        originalSchedule, response.nextCheckAt()
+                ),
+                () -> assertEquals(token, endpoint.getCheckToken()),
+                () -> assertEquals(lease, endpoint.getCheckLeaseUntil())
+        );
 
         verify(endpointRepository, never())
                 .save(any(MonitoredEndpoint.class));
@@ -273,7 +351,7 @@ class EndpointManagementServiceTest {
     void cannotUpdateUnavailableEndpoint() {
         stubOwner();
 
-        when(endpointRepository.findByIdAndOwner_Id(
+        when(endpointRepository.findByIdAndOwnerIdForUpdate(
                 endpointId, ownerId
         )).thenReturn(Optional.empty());
 
@@ -286,6 +364,9 @@ class EndpointManagementServiceTest {
 
         verify(endpointRepository, never())
                 .save(any(MonitoredEndpoint.class));
+
+        verify(endpointRepository, never())
+                .findByIdForUpdate(any());
     }
 
     @Test
@@ -326,6 +407,48 @@ class EndpointManagementServiceTest {
         verifyNoInteractions(endpointRepository);
     }
 
+    @Test
+    void missingOwnerIdIsRejected() {
+        assertAll(
+                () -> assertThrows(
+                        IllegalArgumentException.class,
+                        () -> service.getEndpoint(null, endpointId)
+                ),
+                () -> assertThrows(
+                        IllegalArgumentException.class,
+                        () -> service.listEndpoints(null, 0, 20)
+                ),
+                () -> assertThrows(
+                        IllegalArgumentException.class,
+                        () -> service.updateMonitoringState(
+                                null, endpointId, true
+                        )
+                )
+        );
+
+        verifyNoInteractions(userRepository, endpointRepository);
+    }
+
+    @Test
+    void missingEndpointIdIsRejectedBeforeEndpointLookup() {
+        stubOwner();
+
+        assertAll(
+                () -> assertThrows(
+                        IllegalArgumentException.class,
+                        () -> service.getEndpoint(ownerId, null)
+                ),
+                () -> assertThrows(
+                        IllegalArgumentException.class,
+                        () -> service.updateMonitoringState(
+                                ownerId, null, true
+                        )
+                )
+        );
+
+        verifyNoInteractions(endpointRepository);
+    }
+
     private void stubOwner() {
         when(userRepository.findById(ownerId))
                 .thenReturn(Optional.of(owner));
@@ -333,6 +456,12 @@ class EndpointManagementServiceTest {
 
     private void stubEndpoint() {
         when(endpointRepository.findByIdAndOwner_Id(
+                endpointId, ownerId
+        )).thenReturn(Optional.of(endpoint));
+    }
+
+    private void stubLockedEndpoint() {
+        when(endpointRepository.findByIdAndOwnerIdForUpdate(
                 endpointId, ownerId
         )).thenReturn(Optional.of(endpoint));
     }

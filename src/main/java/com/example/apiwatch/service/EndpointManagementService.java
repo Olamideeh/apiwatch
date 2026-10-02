@@ -31,7 +31,15 @@ public class EndpointManagementService {
             UUID endpointId
     ) {
         requireActiveOwner(ownerId);
-        return toResponse(findOwnedEndpoint(ownerId, endpointId));
+        requireEndpointId(endpointId);
+
+        MonitoredEndpoint endpoint = endpointRepository
+                .findByIdAndOwner_Id(endpointId, ownerId)
+                .orElseThrow(() -> new ResourceNotFoundException(
+                        "Endpoint not found"
+                ));
+
+        return toResponse(endpoint);
     }
 
     @Transactional(readOnly = true)
@@ -86,15 +94,23 @@ public class EndpointManagementService {
             boolean paused
     ) {
         requireActiveOwner(ownerId);
+        requireEndpointId(endpointId);
 
-        MonitoredEndpoint endpoint =
-                findOwnedEndpoint(ownerId, endpointId);
+        MonitoredEndpoint endpoint = endpointRepository
+                .findByIdAndOwnerIdForUpdate(endpointId, ownerId)
+                .orElseThrow(() -> new ResourceNotFoundException(
+                        "Endpoint not found"
+                ));
 
         if (endpoint.isPaused() == paused) {
             return toResponse(endpoint);
         }
 
         endpoint.setPaused(paused);
+
+        // Reject any result belonging to the previous monitoring state.
+        endpoint.setCheckToken(null);
+        endpoint.setCheckLeaseUntil(null);
 
         if (!paused) {
             endpoint.setNextCheckAt(Instant.now());
@@ -120,21 +136,12 @@ public class EndpointManagementService {
         }
     }
 
-    private MonitoredEndpoint findOwnedEndpoint(
-            UUID ownerId,
-            UUID endpointId
-    ) {
+    private void requireEndpointId(UUID endpointId) {
         if (endpointId == null) {
             throw new IllegalArgumentException(
                     "Endpoint ID is required"
             );
         }
-
-        return endpointRepository
-                .findByIdAndOwner_Id(endpointId, ownerId)
-                .orElseThrow(() -> new ResourceNotFoundException(
-                        "Endpoint not found"
-                ));
     }
 
     private EndpointResponse toResponse(MonitoredEndpoint endpoint) {

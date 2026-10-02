@@ -24,6 +24,14 @@ public class SecurityConfig {
                 )
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(
+                                HttpMethod.GET,
+                                "/",
+                                "/index.html",
+                                "/styles.css",
+                                "/app.js",
+                                "/favicon.ico"
+                        ).permitAll()
+                        .requestMatchers(
                                 HttpMethod.POST,
                                 "/api/v1/auth/register",
                                 "/api/v1/auth/login"

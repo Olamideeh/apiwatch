@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>APIWatch — Endpoint monitoring</title>
+    <link rel="stylesheet" href="/styles.css">
+    <script src="/app.js" defer></script>
+</head>
+<body>
+<header class="topbar">
+    <a class="brand" href="/">API<span>Watch</span></a>
+    <div class="account">
+        <span id="account-email"></span>
+        <button id="logout" class="secondary" hidden>Log out</button>
+    </div>
+</header>
+
+<main>
+    <div id="message" role="status" aria-live="polite" hidden></div>
+
+    <section id="auth-view" class="auth-layout">
+        <div class="intro">
+            <p class="eyebrow">KNOW WHEN YOUR API NEEDS YOU</p>
+            <h1>Your endpoints.<br>Your peace of mind.</h1>
+            <p>
+                Track availability, spot slow responses, and receive
+                email alerts when an endpoint goes offline or recovers.
+            </p>
+            <div class="legend">
+                <span class="badge ONLINE">Online</span>
+                <span class="badge DEGRADED">Degraded</span>
+                <span class="badge OFFLINE">Offline</span>
+            </div>
+        </div>
+
+        <div class="card auth-card">
+            <div class="tabs">
+                <button id="login-tab" class="active" type="button"
+                        aria-pressed="true">Log in</button>
+                <button id="register-tab" type="button"
+                        aria-pressed="false">Create account</button>
+            </div>
+
+            <form id="login-form">
+                <h2>Welcome back</h2>
+                <label for="login-email">Email address</label>
+                <input id="login-email" type="email"
+                       autocomplete="username" maxlength="200" required>
+
+                <label for="login-password">Password</label>
+                <input id="login-password" type="password"
+                       autocomplete="current-password"
+                       maxlength="72" required>
+
+                <button type="submit">Log in</button>
+            </form>
+
+            <form id="register-form" hidden>
+                <h2>Create your account</h2>
+                <label for="register-name">Full name</label>
+                <input id="register-name" autocomplete="name"
+                       maxlength="150" required>
+
+                <label for="register-email">Email address</label>
+                <input id="register-email" type="email"
+                       autocomplete="username" maxlength="200" required>
+
+                <label for="register-password">Password</label>
+                <input id="register-password" type="password"
+                       autocomplete="new-password"
+                       minlength="12" maxlength="72" required,>
+                <p class="hint">Use at least 12 characters.</p>
+
+                <button type="submit">Create account</button>
+            </form>
+        </div>
+    </section>
+
+    <section id="dashboard-view" hidden>
+        <div class="section-heading">
+            <div>
+                <p class="eyebrow">MONITORING WORKSPACE</p>
+                <h1>Endpoint overview</h1>
+                <p class="muted">
+                    Status updates appear as scheduled checks complete.
+                </p>
+            </div>
+            <button id="refresh" class="secondary">Refresh</button>
+        </div>
+
+        <div class="workspace">
+            <section class="card">
+                <h2>Add an endpoint</h2>
+
+                <form id="endpoint-form">
+                    <label for="endpoint-name">Name</label>
+                    <input id="endpoint-name" maxlength="150"
+                           placeholder="Payment API" required>
+
+                    <label for="endpoint-url">Public endpoint URL</label>
+                    <input id="endpoint-url" type="url" maxlength="2048"
+                           placeholder="https://example.com/health" required>
+                    <p class="hint">
+                        Checks use GET. Private network addresses
+                        and redirects are not supported.
+                    </p>
+
+                    <label for="expected-status">Expected HTTP status</label>
+                    <input id="expected-status" type="number"
+                           min="100" max="599" value="200" required>
+
+                    <label for="interval">Check interval (seconds)</label>
+                    <input id="interval" type="number"
+                           min="60" max="86400" value="60" required>
+
+                    <label for="timeout">Timeout (milliseconds)</label>
+                    <input id="timeout" type="number"
+                           min="100" max="30000" value="5000" required>
+
+                    <label for="response-limit">
+                        Slow response threshold (milliseconds)
+                    </label>
+                    <input id="response-limit" type="number"
+                           min="1" max="30000" value="1000" required>
+
+                    <button type="submit">Start monitoring</button>
+                </form>
+            </section>
+
+            <section class="card endpoints-card">
+                <div class="section-heading">
+                    <h2>Your endpoints</h2>
+                    <span id="endpoint-total" class="muted"></span>
+                </div>
+
+                <p id="endpoint-empty" class="muted" hidden>
+                    No endpoints yet. Add your first endpoint to begin.
+                </p>
+
+                <div id="endpoint-list"></div>
+
+                <div class="pagination">
+                    <button id="previous" class="secondary" disabled>
+                        Previous
+                    </button>
+                    <span id="page-label"></span>
+                    <button id="next" class="secondary" disabled>
+                        Next
+                    </button>
+                </div>
+            </section>
+        </div>
+
+        <section id="detail-panel" class="card detail-card" hidden>
+            <div class="section-heading">
+                <div>
+                    <p class="eyebrow">ENDPOINT DETAILS</p>
+                    <h2 id="detail-name"></h2>
+                </div>
+                <button id="close-details" class="secondary">Close</button>
+            </div>
+
+            <form id="uptime-form" class="range-form">
+                <div>
+                    <label for="range-from">From (your local time)</label>
+                    <input id="range-from" type="datetime-local" required>
+                </div>
+                <div>
+                    <label for="range-to">To (your local time)</label>
+                    <input id="range-to" type="datetime-local" required>
+                </div>
+                <button type="submit">Calculate uptime</button>
+            </form>
+
+            <div id="uptime-result" class="uptime-result">
+                Select a time range to calculate uptime.
+            </div>
+            <p class="hint">
+                Uptime is based on recorded checks. Online and degraded
+                checks count as available; paused periods add no checks.
+            </p>
+
+            <h3>Latest 20 checks</h3>
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                    <tr>
+                        <th scope="col">Checked at</th>
+                        <th scope="col">Status</th>
+                        <th scope="col">HTTP</th>
+                        <th scope="col">Duration</th>
+                        <th scope="col">Error</th>
+                    </tr>
+                    </thead>
+                    <tbody id="check-list"></tbody>
+                </table>
+            </div>
+            <p id="checks-empty" class="muted" hidden>
+                No checks recorded yet.
+            </p>
+        </section>
+    </section>
+</main>
+
+<footer>APIWatch · Simple monitoring for public HTTP endpoints</footer>
+</body>
+</html>

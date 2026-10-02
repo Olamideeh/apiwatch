@@ -1,6 +1,7 @@
 package com.example.apiwatch.service;
 
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.hc.client5.http.classic.methods.HttpGet;
 import org.apache.hc.client5.http.config.RequestConfig;
 import org.apache.hc.client5.http.impl.classic.CloseableHttpClient;
@@ -14,6 +15,7 @@ import java.net.URI;
 
 @Component
 @RequiredArgsConstructor
+@Slf4j
 public class ApacheMonitoringHttpTransport
         implements MonitoringHttpTransport {
 
@@ -39,8 +41,6 @@ public class ApacheMonitoringHttpTransport
 
         URI validatedUri = urlValidator.validate(uri.toString());
 
-        // Reject blocked destinations before request execution.
-        // The client's DNS resolver also validates connection-time resolution.
         publicHostResolver.resolve(validatedUri.getHost());
 
         Timeout timeout = Timeout.ofMilliseconds(timeoutMillis);
@@ -57,21 +57,33 @@ public class ApacheMonitoringHttpTransport
         request.setConfig(requestConfig);
         request.setHeader("User-Agent", "APIWatch/1.0");
 
-        try (ClassicHttpResponse response =
-                     monitoringHttpClient.executeOpen(
-                             null,
-                             request,
-                             HttpClientContext.create()
-                     )) {
-            int statusCode = response.getCode();
+        ClassicHttpResponse response = null;
 
-            // We only measure arrival of the response headers.
-            // Cancel before closing to avoid downloading an arbitrary body.
-            request.cancel();
+        try {
+            response = monitoringHttpClient.executeOpen(
+                    null,
+                    request,
+                    HttpClientContext.create()
+            );
 
-            return statusCode;
+            // A completed check measures arrival of the response headers.
+            return response.getCode();
         } finally {
+            // Stop downloading the body and discard this connection.
             request.cancel();
+
+            if (response != null) {
+                try {
+                    response.close();
+                } catch (IOException cleanupException) {
+                    // Cleanup must not replace an already received status.
+                    log.debug(
+                            "Response cleanup failed for host {}",
+                            validatedUri.getHost(),
+                            cleanupException
+                    );
+                }
+            }
         }
     }
 }

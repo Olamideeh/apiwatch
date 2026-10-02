@@ -48,6 +48,9 @@ class CheckLifecycleIntegrationTest {
     private CheckRecordingService recordingService;
 
     @Autowired
+    private EndpointManagementService managementService;
+
+    @Autowired
     private UserRepository userRepository;
 
     @Autowired
@@ -209,6 +212,197 @@ class CheckLifecycleIntegrationTest {
 
         assertTrue(acceptedResult.isPresent());
         assertEquals(1L, checkCount());
+    }
+
+    @Test
+    void pausingInvalidatesClaimAndRejectsResultWhilePaused() {
+        ClaimedEndpointCheck oldClaim =
+                claimService.claim(endpointId).orElseThrow();
+
+        MonitoredEndpoint beforePause = storedEndpoint();
+        Instant originalSchedule = beforePause.getNextCheckAt();
+
+        managementService.updateMonitoringState(
+                ownerId,
+                endpointId,
+                true
+        );
+
+        MonitoredEndpoint paused = storedEndpoint();
+
+        assertAll(
+                () -> assertTrue(paused.isPaused()),
+                () -> assertNull(paused.getCheckToken()),
+                () -> assertNull(paused.getCheckLeaseUntil()),
+                () -> assertEquals(
+                        originalSchedule,
+                        paused.getNextCheckAt()
+                ),
+                () -> assertEquals(
+                        EndpointStatus.PENDING,
+                        paused.getCurrentStatus()
+                )
+        );
+
+        assertTrue(claimService.claim(endpointId).isEmpty());
+
+        Optional<CheckResultResponse> rejectedResult =
+                recordingService.record(
+                        endpointId,
+                        oldClaim.checkToken(),
+                        new HttpProbeResult(500, 100, null),
+                        Instant.now()
+                );
+
+        MonitoredEndpoint stored = storedEndpoint();
+
+        assertAll(
+                () -> assertTrue(rejectedResult.isEmpty()),
+                () -> assertEquals(0L, checkCount()),
+                () -> assertEquals(0L, alertCount()),
+                () -> assertTrue(stored.isPaused()),
+                () -> assertEquals(
+                        EndpointStatus.PENDING,
+                        stored.getCurrentStatus()
+                ),
+                () -> assertEquals(0, stored.getConsecutiveFailures()),
+                () -> assertFalse(stored.isOutageOpen()),
+                () -> assertNull(stored.getLastCheckedAt())
+        );
+    }
+
+    @Test
+    void pauseThenResumeRejectsOldResultAndAcceptsNewClaim() {
+        // An old failed result would open an outage if accepted.
+        MonitoredEndpoint endpoint = storedEndpoint();
+        endpoint.setConsecutiveFailures(2);
+        endpointRepository.saveAndFlush(endpoint);
+
+        ClaimedEndpointCheck oldClaim =
+                claimService.claim(endpointId).orElseThrow();
+
+        managementService.updateMonitoringState(
+                ownerId,
+                endpointId,
+                true
+        );
+
+        managementService.updateMonitoringState(
+                ownerId,
+                endpointId,
+                false
+        );
+
+        MonitoredEndpoint resumed = storedEndpoint();
+
+        assertAll(
+                () -> assertFalse(resumed.isPaused()),
+                () -> assertNull(resumed.getCheckToken()),
+                () -> assertNull(resumed.getCheckLeaseUntil()),
+                () -> assertFalse(
+                        resumed.getNextCheckAt().isAfter(Instant.now())
+                ),
+                () -> assertEquals(
+                        2,
+                        resumed.getConsecutiveFailures()
+                )
+        );
+
+        // The old result must be rejected even before a new claim exists.
+        Optional<CheckResultResponse> resultBeforeNewClaim =
+                recordingService.record(
+                        endpointId,
+                        oldClaim.checkToken(),
+                        new HttpProbeResult(500, 100, null),
+                        Instant.now()
+                );
+
+        assertTrue(resultBeforeNewClaim.isEmpty());
+        assertEquals(0L, checkCount());
+        assertEquals(0L, alertCount());
+
+        ClaimedEndpointCheck newClaim =
+                claimService.claim(endpointId).orElseThrow();
+
+        assertNotEquals(
+                oldClaim.checkToken(),
+                newClaim.checkToken()
+        );
+
+        // The old result must also leave the new claim untouched.
+        Optional<CheckResultResponse> resultAfterNewClaim =
+                recordingService.record(
+                        endpointId,
+                        oldClaim.checkToken(),
+                        new HttpProbeResult(500, 100, null),
+                        Instant.now()
+                );
+
+        MonitoredEndpoint afterRejectedResult = storedEndpoint();
+
+        assertAll(
+                () -> assertTrue(resultAfterNewClaim.isEmpty()),
+                () -> assertEquals(0L, checkCount()),
+                () -> assertEquals(0L, alertCount()),
+                () -> assertEquals(
+                        newClaim.checkToken(),
+                        afterRejectedResult.getCheckToken()
+                ),
+                () -> assertNotNull(
+                        afterRejectedResult.getCheckLeaseUntil()
+                ),
+                () -> assertEquals(
+                        EndpointStatus.PENDING,
+                        afterRejectedResult.getCurrentStatus()
+                ),
+                () -> assertEquals(
+                        2,
+                        afterRejectedResult.getConsecutiveFailures()
+                ),
+                () -> assertFalse(afterRejectedResult.isOutageOpen()),
+                () -> assertNull(afterRejectedResult.getLastCheckedAt())
+        );
+
+        Instant checkedAt = Instant.now();
+
+        CheckResultResponse acceptedResult = recordingService.record(
+                endpointId,
+                newClaim.checkToken(),
+                new HttpProbeResult(200, 100, null),
+                checkedAt
+        ).orElseThrow();
+
+        MonitoredEndpoint afterAcceptedResult = storedEndpoint();
+
+        assertAll(
+                () -> assertEquals(
+                        EndpointStatus.ONLINE,
+                        acceptedResult.status()
+                ),
+                () -> assertEquals(1L, checkCount()),
+                () -> assertEquals(0L, alertCount()),
+                () -> assertFalse(afterAcceptedResult.isPaused()),
+                () -> assertEquals(
+                        EndpointStatus.ONLINE,
+                        afterAcceptedResult.getCurrentStatus()
+                ),
+                () -> assertEquals(
+                        0,
+                        afterAcceptedResult.getConsecutiveFailures()
+                ),
+                () -> assertFalse(afterAcceptedResult.isOutageOpen()),
+                () -> assertNotNull(
+                        afterAcceptedResult.getLastCheckedAt()
+                ),
+                () -> assertTrue(
+                        afterAcceptedResult.getNextCheckAt()
+                                .isAfter(checkedAt)
+                ),
+                () -> assertNull(afterAcceptedResult.getCheckToken()),
+                () -> assertNull(
+                        afterAcceptedResult.getCheckLeaseUntil()
+                )
+        );
     }
 
     @Test

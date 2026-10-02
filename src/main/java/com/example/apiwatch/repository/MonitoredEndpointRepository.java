@@ -1,10 +1,10 @@
 package com.example.apiwatch.repository;
 
 import com.example.apiwatch.entity.MonitoredEndpoint;
+import jakarta.persistence.LockModeType;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
-import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -31,27 +31,41 @@ public interface MonitoredEndpointRepository
     findTop50ByPausedFalseAndNextCheckAtLessThanEqualOrderByNextCheckAtAscIdAsc(
             Instant now
     );
+
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("""
-        select endpoint
-        from MonitoredEndpoint endpoint
-        where endpoint.id = :endpointId
-        """)
+            select endpoint
+            from MonitoredEndpoint endpoint
+            where endpoint.id = :endpointId
+            """)
     Optional<MonitoredEndpoint> findByIdForUpdate(
             @Param("endpointId") UUID endpointId
     );
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("""
-        select endpoint
-        from MonitoredEndpoint endpoint
-        where endpoint.paused = false
-          and endpoint.owner.active = true
-          and endpoint.nextCheckAt <= :now
-          and (
-              endpoint.checkLeaseUntil is null
-              or endpoint.checkLeaseUntil <= :now
-          )
-        order by endpoint.nextCheckAt asc, endpoint.id asc
-        """)
+            select endpoint
+            from MonitoredEndpoint endpoint
+            where endpoint.id = :endpointId
+              and endpoint.owner.id = :ownerId
+            """)
+    Optional<MonitoredEndpoint> findByIdAndOwnerIdForUpdate(
+            @Param("endpointId") UUID endpointId,
+            @Param("ownerId") UUID ownerId
+    );
+
+    @Query("""
+            select endpoint
+            from MonitoredEndpoint endpoint
+            where endpoint.paused = false
+              and endpoint.owner.active = true
+              and endpoint.nextCheckAt <= :now
+              and (
+                  endpoint.checkLeaseUntil is null
+                  or endpoint.checkLeaseUntil <= :now
+              )
+            order by endpoint.nextCheckAt asc, endpoint.id asc
+            """)
     List<MonitoredEndpoint> findDueEndpoints(
             @Param("now") Instant now,
             Pageable pageable
