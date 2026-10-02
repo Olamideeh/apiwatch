@@ -1,6 +1,7 @@
-package com.example.apiwatch.controller;
+package com.example.apiwatch.service;
 
 import com.example.apiwatch.config.SecurityConfig;
+import com.example.apiwatch.controller.MonitoredEndpointController;
 import com.example.apiwatch.dto.EndpointResponse;
 import com.example.apiwatch.dto.RegisterEndpointRequest;
 import com.example.apiwatch.enums.EndpointStatus;
@@ -16,6 +17,7 @@ import org.springframework.http.MediaType;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
+import com.example.apiwatch.service.EndpointManagementService;
 
 import java.time.Instant;
 import java.util.UUID;
@@ -33,8 +35,12 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 })
 class MonitoredEndpointControllerTest {
 
+
     @Autowired
     private MockMvc mockMvc;
+
+    @MockitoBean
+    private EndpointManagementService managementService;
 
     @MockitoBean
     private EndpointRegistrationService registrationService;
